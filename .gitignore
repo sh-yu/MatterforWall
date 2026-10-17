@@ -13,6 +13,7 @@ firmware/sdkconfig.*
 !firmware/sdkconfig.matter.defaults
 firmware/managed_components/
 android/.gradle/
+android/.kotlin/
 android/local.properties
 android/**/build/
 android/app/schemas/

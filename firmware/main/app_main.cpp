@@ -4,6 +4,7 @@
 #include "wmb/esp_ota_manager.hpp"
 #include "wmb/packet_analyzer.hpp"
 #include "wmb/safety_policy.hpp"
+#include "wmb/elevator_candidates.hpp"
 
 #include "esp_log.h"
 #include "esp_ota_ops.h"
@@ -19,6 +20,7 @@ std::unique_ptr<wmb::PacketAnalyzer> analyzer;
 std::unique_ptr<wmb::EspBleManager> ble_manager;
 std::unique_ptr<wmb::EspOtaManager> ota_manager;
 std::unique_ptr<wmb::EspMatterBridge> matter;
+wmb::ElevatorCandidateScanner elevator_scanner;
 
 }  // namespace
 
@@ -53,6 +55,14 @@ extern "C" void app_main() {
     transport->force_receive_only();
     transport->set_receive_handler([](wmb::Packet packet) {
         analyzer->observe(packet);
+        for (const auto byte : packet.data) {
+            const auto candidate = elevator_scanner.feed(byte);
+            if (candidate != wmb::ElevatorCandidate::None) {
+                ESP_LOGI(kTag, "HARDWARE_TEST_PENDING elevator candidate=%s; no state inference",
+                         candidate == wmb::ElevatorCandidate::Kocom21ChecksumMatch
+                             ? "option1_checksum_match" : "option2_checksum_unknown");
+            }
+        }
         ESP_LOGI(kTag, "RX len=%u groups=%u", static_cast<unsigned>(packet.data.size()),
                  static_cast<unsigned>(analyzer->unique_group_count()));
         if (ble_manager != nullptr) ble_manager->notify_packet(packet);

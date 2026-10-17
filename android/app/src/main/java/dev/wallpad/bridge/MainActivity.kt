@@ -88,6 +88,7 @@ private enum class Screen(val label: String, val icon: ImageVector) {
     DASHBOARD("홈", Icons.Default.Dashboard),
     MONITOR("모니터", Icons.Default.WifiTethering),
     ANALYZER("분석", Icons.Default.Analytics),
+    ELEVATOR("승강기", Icons.Default.Tune),
     FIRMWARE("업데이트", Icons.Default.SystemUpdate),
     SETTINGS("설정", Icons.Default.Settings),
 }
@@ -131,6 +132,7 @@ private fun ManagerApp(vm: AppViewModel = viewModel()) {
                 Screen.DASHBOARD -> Dashboard(state, vm::scan, vm::connect, vm::disconnect)
                 Screen.MONITOR -> Monitor(state, vm::togglePause, vm::clearPackets)
                 Screen.ANALYZER -> Analyzer(state)
+                Screen.ELEVATOR -> ElevatorResearchScreen(state)
                 Screen.FIRMWARE -> FirmwareScreen(
                     state = state,
                     chooseFile = { firmwarePicker.launch(arrayOf("*/*")) },
@@ -140,7 +142,7 @@ private fun ManagerApp(vm: AppViewModel = viewModel()) {
                     checkRelease = vm::checkRelease,
                     downloadRelease = vm::downloadRelease,
                 )
-                Screen.SETTINGS -> SettingsScreen()
+                Screen.SETTINGS -> SettingsScreen(state)
             }
         }
     }
@@ -491,10 +493,15 @@ private fun FirmwareScreen(
 }
 
 @Composable
-private fun SettingsScreen() {
+private fun SettingsScreen(state: DashboardState) {
     Column(Modifier.fillMaxSize().padding(16.dp)) {
         Text("설정", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
         Spacer(Modifier.height(12.dp))
+        AppUpdateCard(
+            repository = state.releaseRepository,
+            enabled = state.otaState !in setOf(FirmwareUpdateState.STARTING, FirmwareUpdateState.UPLOADING,
+                FirmwareUpdateState.VERIFYING, FirmwareUpdateState.REBOOTING),
+        )
         Card(colors = CardDefaults.cardColors(containerColor = Color.White)) {
             Column(Modifier.fillMaxWidth().padding(16.dp)) {
                 Text("제어 보안 정책", fontWeight = FontWeight.Bold)

@@ -9,6 +9,13 @@ data class FirmwareRelease(val version: String, val imageUrl: String, val size: 
 
 /** Public GitHub releases only; credentials and signing keys never enter the app. */
 class GitHubReleaseRepository {
+    internal fun release(repository: String): JSONObject {
+        require(repository.matches(Regex("[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+"))) { "owner/repository 형식으로 입력하세요." }
+        val result = JSONObject(fetch("https://api.github.com/repos/$repository/releases/latest", 256 * 1024).decodeToString())
+        require(!result.optBoolean("draft") && !result.optBoolean("prerelease"))
+        return result
+    }
+
     fun latest(repository: String): FirmwareRelease {
         require(repository.matches(Regex("[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+"))) { "owner/repository 형식으로 입력하세요." }
         val release = JSONObject(fetch("https://api.github.com/repos/$repository/releases/latest", 256 * 1024).decodeToString())
@@ -40,7 +47,7 @@ class GitHubReleaseRepository {
         return bytes
     }
 
-    private fun fetch(address: String, limit: Int, progress: (Int) -> Unit = {}): ByteArray {
+    internal fun fetch(address: String, limit: Int, progress: (Int) -> Unit = {}): ByteArray {
         var url = URL(address)
         repeat(6) {
             require(url.protocol == "https" && url.userInfo == null && url.port in listOf(-1, 443))
@@ -57,6 +64,9 @@ class GitHubReleaseRepository {
                 if (status in listOf(301, 302, 303, 307, 308)) {
                     url = URL(url, connection.getHeaderField("Location") ?: error("잘못된 리디렉션"))
                 } else {
+                    if (status == 404 && url.host == "api.github.com" && url.path.endsWith("/releases/latest")) {
+                        error("게시된 업데이트가 없거나 저장소에 접근할 수 없습니다. 공개 저장소의 Releases에 업데이트가 게시된 뒤 다시 확인하세요.")
+                    }
                     require(status == 200) { "GitHub 응답 오류 ($status)" }
                     require(connection.contentLengthLong <= limit) { "허용 크기를 초과했습니다." }
                     return connection.inputStream.use { input ->

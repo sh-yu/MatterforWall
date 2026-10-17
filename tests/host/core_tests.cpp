@@ -1,6 +1,7 @@
 #include "wmb/ble_frame.hpp"
 #include "wmb/packet_analyzer.hpp"
 #include "wmb/safety_policy.hpp"
+#include "wmb/elevator_candidates.hpp"
 
 #include <algorithm>
 #include <cstdlib>
@@ -79,6 +80,22 @@ void test_safety() {
 }  // namespace
 
 int main() {
+    // SYNTHETIC_TEST_DATA: exercise framing only, never transmitted.
+    const wmb::Bytes elevator{0xaa,0x55,0x30,0xbc,0,1,0,0x44,0,1,0,0,0,0,0,0,0,0,0x32,0x0d,0x0d};
+    wmb::ElevatorCandidateScanner scanner;
+    scanner.feed(0x99);
+    wmb::ElevatorCandidate candidate = wmb::ElevatorCandidate::None;
+    for (const auto byte : elevator) candidate = scanner.feed(byte);
+    expect(candidate == wmb::ElevatorCandidate::Kocom21ChecksumMatch, "candidate checksum after noise");
+    auto malformed = elevator;
+    malformed[18] ^= 1U;
+    scanner.reset();
+    for (const auto byte : malformed) candidate = scanner.feed(byte);
+    expect(candidate == wmb::ElevatorCandidate::None, "candidate checksum corruption rejected");
+    const wmb::Bytes short_frame{0xaa,0x55,0x0b,1,0x0d,1,0x31,1,0x41,0x7c,0x0d,0x0d};
+    scanner.reset();
+    for (const auto byte : short_frame) candidate = scanner.feed(byte);
+    expect(candidate == wmb::ElevatorCandidate::KocomShortUnverified, "short checksum remains unknown");
     test_ble_codec();
     test_fragmentation();
     test_analysis();

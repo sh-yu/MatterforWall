@@ -4,6 +4,27 @@ Last updated: 2026-10-15, Asia/Seoul.
 
 ## 2026-10-18 app/release changes
 
+- Manager 0.4.0 adds GitHub app metadata/APK download, package/version/hash/signer
+  checks and Android installer handoff. Android tests/lint/build passed and
+  wireless ADB replacement installation succeeded. GitHub installer end-to-end
+  approval/upgrade and malicious APK rejection remain HARDWARE_TEST_PENDING.
+
+- Elevator candidate inspection added: app 0.3.0, option 1 (21 bytes/candidate
+  SUM8) and option 2 (12 bytes/checksum unknown), separate offline samples and
+  passive real-RX comparison. Android unit tests/lint/build passed; replacement
+  installation on SM-S931N succeeded. Firmware 0.4.2 signed build passed and
+  fits the unchanged A/B OTA slots. Device installation remains pending BLE OTA.
+- Native Linux C++17 warning-clean core build/CTest passed, including candidate
+  framing/noise/checksum rejection. Live bus matching and elevator semantics
+  remain HARDWARE_TEST_PENDING. Elevator transmission remains disabled.
+- AGENTS.md now explicitly permits passive option selection/offline replay while
+  retaining reviewed-interface and protocol requirements for physical control.
+
+- Public repository `sh-yu/MatterforWall` verified accessible; latest-release API
+  returns 404 because no release is published. Added explanatory empty-release
+  message, passed Android unit tests/lint/APK build, and reinstalled over wireless
+  ADB successfully. No firmware release was created by this check.
+
 - Added public GitHub stable-release lookup, HTTPS bounded download, manifest
   identity/size/hash validation, numeric version comparison, and existing BLE
   OTA handoff. Repository selection is saved; saved sources are checked at launch.
@@ -12,6 +33,13 @@ Last updated: 2026-10-15, Asia/Seoul.
   publication. Cloud workflow execution is unverified; no Git remote exists.
 - Android test/lint/APK build attempted: blocked by managed-environment Gradle
   cache access and daemon connection failure, before source compilation.
+- Retried with full execution access on 2026-10-18: `testDebugUnitTest lintDebug
+  assembleDebug` passed. Updated manager APK generated; installation is pending
+  a reachable phone wireless-debugging endpoint (ADB/mDNS currently finds none).
+- Subsequently installed manager 0.2.0 (versionCode 2) over wireless ADB on
+  Samsung SM-S931N: package replacement returned Success, installed version and
+  application process launch confirmed. GitHub-download-to-ESP OTA remains
+  HARDWARE_TEST_PENDING.
 - Python profile/partition/release-manifest checks: 4/4 passed with workspace
   temporary directory. Android numeric version tests added but not executed.
 - New end-to-end app/GitHub/OTA and all elevator control: HARDWARE_TEST_PENDING.

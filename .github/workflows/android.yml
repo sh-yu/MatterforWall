@@ -16,9 +16,10 @@ jobs:
           distribution: temurin
           java-version: "17"
       - uses: gradle/actions/setup-gradle@v4
+      - uses: android-actions/setup-android@v3
       - name: Unit tests, lint, and APK
         working-directory: android
-        run: ./gradlew testDebugUnitTest lintDebug assembleDebug --no-daemon
+        run: bash gradlew testDebugUnitTest lintDebug assembleDebug --no-daemon
       - uses: actions/upload-artifact@v4
         with:
           name: wallpad-bridge-manager-debug

@@ -17,7 +17,7 @@ if(DEFINED ENV{ESP_MATTER_PATH})
 endif()
 
 include($ENV{IDF_PATH}/tools/cmake/project.cmake)
-set(PROJECT_VER "0.4.1")
+set(PROJECT_VER "0.4.2")
 project(wallpad-matter-bridge)
 
 if(DEFINED ENV{ESP_MATTER_PATH})

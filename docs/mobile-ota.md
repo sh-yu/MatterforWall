@@ -10,6 +10,22 @@ firmware key is stored in the app. Public repositories only are supported.
 The checksum manifest detects corrupt downloads; it is not a cryptographic trust
 anchor. The installed ESP firmware is the signature trust anchor.
 
+## App self-update (manager 0.4.0+)
+
+Open Settings → App update. The app uses the configured public repository and
+fetches `android-update.json` plus `app-debug.apk` from its latest stable release.
+It requires a newer Android versionCode, bounded size, matching SHA-256, package
+name/version, and the same installed APK signer. It opens the Android package
+installer using a narrow FileProvider URI. Enable installation from this app when
+Android requests it, return, and press Install again. Installation requires user
+confirmation; it is not a silent update. Keep the stable signing keystore backup.
+
+The release workflow generates app metadata from Gradle output rather than
+assuming that Android and firmware versions are identical. A firmware v0.4.2
+release can contain Android manager 0.4.0. App installs are unavailable while
+firmware OTA is active. App-update downloads are foreground operations; retry
+after process death. Cancelling the installer does not report a successful update.
+
 ## One-time setup before leaving the computer
 
 1. Push this project to `https://github.com/sh-yu/MatterforWall` (the app's default

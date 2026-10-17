@@ -17,6 +17,11 @@
   until the physical protocol and fail-safe behavior are verified.
 - Never transmit elevator frames until an approved building interface and the
   exact protocol are documented and reviewed.
+- Elevator research may expose `Option 1: kocom_21` and `Option 2: kocom_short`
+  for passive capture comparison and offline replay. Selection is not approval
+  to transmit. Keep checksum validity separate from command/arrival semantics;
+  never infer floor, arrival, or successful calls from uncorrelated examples.
+  Record source URLs and mark these candidates `HARDWARE_TEST_PENDING`.
 - Direction GPIO must be driven to receive before the UART driver starts.
 - Do not connect the board to an occupied bus until voltage, polarity, common
   ground, termination, idle bias, and baud/parity are measured.
