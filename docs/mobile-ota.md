@@ -28,9 +28,9 @@ after process death. Cancelling the installer does not report a successful updat
 
 ## One-time setup before leaving the computer
 
-1. Push this project to `https://github.com/sh-yu/MatterforWall` (the app's default
-   source). Remote setup/push attempted on 2026-10-18 was blocked by this session's
-   Git metadata write and network restrictions. No release has been uploaded.
+1. Project source is pushed to `https://github.com/sh-yu/MatterforWall` (the app's
+   default source). Release v0.4.2 is published with firmware 0.4.2 and app 0.4.0.
+   Public binary/APK downloads were verified against their manifest hashes.
 2. Add Actions secret `FIRMWARE_SIGNING_KEY_B64` containing the base64 of the
    **existing** `.secrets/wmb_ota_signing_key.pem`. A new key will not work with
    the installed device. Never paste keys into issues, chats, or source files.
@@ -38,6 +38,10 @@ after process death. Cancelling the installer does not report a successful updat
    debug keystore, so cloud APKs retain their signing identity. These are
    development APKs, not production store-signed releases. Increment Android
    versionCode for each app update. Keep an offline key backup.
+
+   Both signing secrets above were provisioned on 2026-10-18 using the existing
+   local identities, encrypted to GitHub's repository public key. Do not replace
+   them with newly generated keys.
 4. Run `Publish signed OTA` in Actions, or push a `vMAJOR.MINOR.PATCH` tag matching
    firmware `PROJECT_VER`. Missing keys, failed Android checks, invalid image
    identity, or OTA slot overflow stop publication. All release assets are
@@ -65,8 +69,9 @@ custom BLE OTA GATT service to work after reboot.
 
 `HARDWARE_TEST_PENDING`: newly changed app APK installation, public-release fetch,
 download interruption, signed release installation, signature rejection, rollback,
-and post-update reconnect on the physical phone/ESP. No live GitHub release was
-published, and no new APK/firmware was installed in this work.
+and post-update reconnect on the physical phone/ESP. The live v0.4.2 release is
+published and manager 0.4.0 is installed over ADB. Firmware 0.4.2 has been staged
+on the phone, but its installation on ESP has not been confirmed.
 
 Elevator call transmission remains unavailable. AGENTS.md requires an approved
 building interface and documented, reviewed exact protocol. No such evidence or

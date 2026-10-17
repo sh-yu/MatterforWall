@@ -4,6 +4,13 @@ Last updated: 2026-10-15, Asia/Seoul.
 
 ## 2026-10-18 app/release changes
 
+- Published GitHub release v0.4.2 with signed firmware 0.4.2, manager APK 0.4.0,
+  firmware-update.json and android-update.json. Public API metadata lookup and
+  downloaded binary/APK size and SHA-256 verification passed. Main source pushed.
+- Existing device signing key and stable Android development keystore registered
+  as encrypted Actions secrets. Values were not printed or committed. Future
+  cloud release execution itself remains unverified.
+
 - Manager 0.4.0 adds GitHub app metadata/APK download, package/version/hash/signer
   checks and Android installer handoff. Android tests/lint/build passed and
   wireless ADB replacement installation succeeded. GitHub installer end-to-end
