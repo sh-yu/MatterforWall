@@ -1,0 +1,40 @@
+# Build output
+build/
+build-host/
+build-host-*/
+firmware/build/
+firmware/build-ota/
+firmware/build-*/
+firmware/sdkconfig
+firmware/sdkconfig.old
+firmware/sdkconfig.ota
+firmware/sdkconfig.*
+!firmware/sdkconfig.defaults
+!firmware/sdkconfig.matter.defaults
+firmware/managed_components/
+android/.gradle/
+android/local.properties
+android/**/build/
+android/app/schemas/
+*.apk
+*.bin
+*.elf
+
+# IDE and host files
+.idea/
+.vscode/
+*.iml
+.DS_Store
+Thumbs.db
+__pycache__/
+.gradle-local/
+*.py[cod]
+
+# Never commit signing material
+.secrets/
+*.keystore
+*.pem
+*.key
+*.p12
+*.jks
+secrets.properties

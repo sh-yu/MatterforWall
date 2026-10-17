@@ -1,0 +1,94 @@
+name: Publish signed OTA
+on:
+  workflow_dispatch:
+  push:
+    tags: ['v*']
+permissions:
+  contents: write
+concurrency:
+  group: ota-release
+  cancel-in-progress: false
+jobs:
+  firmware:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    container: espressif/idf:v5.4.2
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Provision existing device signing key
+        shell: bash
+        env:
+          KEY_B64: ${{ secrets.FIRMWARE_SIGNING_KEY_B64 }}
+        run: |
+          set -euo pipefail
+          test -n "$KEY_B64" || { echo 'Missing firmware signing secret'; exit 1; }
+          umask 077
+          mkdir -p .secrets
+          printf '%s' "$KEY_B64" | base64 --decode > .secrets/wmb_ota_signing_key.pem
+          python scripts/release_manifest.py --check-version "$GITHUB_REF_NAME"
+      - name: Build signed BLE management firmware
+        shell: bash
+        run: |
+          set -euo pipefail
+          . /opt/esp/idf/export.sh
+          cd firmware
+          idf.py build
+          python ../scripts/check_ota_size.py build/wallpad-matter-bridge.bin partitions.csv
+          python ../scripts/release_manifest.py --image build/wallpad-matter-bridge.bin --output build/firmware-update.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: signed-firmware
+          path: |
+            firmware/build/wallpad-matter-bridge.bin
+            firmware/build/firmware-update.json
+          if-no-files-found: error
+      - name: Remove signing material
+        if: always()
+        shell: bash
+        run: rm -f .secrets/wmb_ota_signing_key.pem
+  android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Restore stable Android development signing identity
+        env:
+          KEYSTORE_B64: ${{ secrets.ANDROID_DEBUG_KEYSTORE_B64 }}
+        run: |
+          set -euo pipefail
+          test -n "$KEYSTORE_B64" || { echo 'Missing stable Android keystore secret'; exit 1; }
+          umask 077
+          mkdir -p "$HOME/.android"
+          printf '%s' "$KEYSTORE_B64" | base64 --decode > "$HOME/.android/debug.keystore"
+      - working-directory: android
+        run: bash gradlew testDebugUnitTest lintDebug assembleDebug --no-daemon
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android-manager
+          path: android/app/build/outputs/apk/debug/app-debug.apk
+  publish:
+    needs: [firmware, android]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+      - name: Publish complete release from draft
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION=$(python scripts/release_manifest.py --print-version)
+          TAG="v$VERSION"
+          gh release create "$TAG" --target "$GITHUB_SHA" --draft --title "$TAG" --generate-notes artifacts/*
+          gh release edit "$TAG" --draft=false --latest

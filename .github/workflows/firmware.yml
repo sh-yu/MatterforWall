@@ -1,0 +1,39 @@
+name: Firmware Build
+
+on:
+  push:
+    paths: ["firmware/**", "shared/**", "scripts/**", ".github/workflows/firmware.yml"]
+  pull_request:
+    paths: ["firmware/**", "shared/**", "scripts/**", ".github/workflows/firmware.yml"]
+
+jobs:
+  esp32c6-matter:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch pinned esp-matter SDK
+        run: |
+          git clone --depth 1 --branch release/v1.4.2 --recurse-submodules --shallow-submodules \
+            https://github.com/espressif/esp-matter.git "$RUNNER_TEMP/esp-matter"
+      - name: Install pinned SDK toolchain
+        working-directory: ${{ runner.temp }}/esp-matter
+        run: ./install.sh
+      - name: Build ESP32-C6 Matter firmware
+        shell: bash
+        run: |
+          source "$RUNNER_TEMP/esp-matter/export.sh"
+          export ESP_MATTER_PATH="$RUNNER_TEMP/esp-matter"
+          cd firmware
+          idf.py set-target esp32c6
+          echo 'CONFIG_WMB_ENABLE_MATTER_EXPERIMENTAL=y' >> sdkconfig
+          idf.py build
+          python ../scripts/check_ota_size.py build/wallpad-matter-bridge.bin partitions.csv
+      - uses: actions/upload-artifact@v4
+        with:
+          name: esp32c6-firmware
+          path: |
+            firmware/build/wallpad-matter-bridge.bin
+            firmware/build/bootloader/bootloader.bin
+            firmware/build/partition_table/partition-table.bin
+

@@ -1,0 +1,18 @@
+menu "Wallpad bridge"
+
+config WMB_ENABLE_RS485_TX
+    bool "Allow runtime RS485 transmit gate"
+    default n
+    help
+        This only exposes the runtime gate. A verified profile, administrator
+        authentication and command allow-list are still mandatory.
+
+config WMB_ENABLE_MATTER_EXPERIMENTAL
+    bool "Build experimental Matter light adapter"
+    default n
+    help
+        Requires ESP_MATTER_PATH at configure time. SmartThings interoperability
+        remains HARDWARE_TEST_PENDING.
+
+endmenu
+

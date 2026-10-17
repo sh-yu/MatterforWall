@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "manufacturer": "Generic",
+  "model": "RS485 passive capture",
+  "profileVersion": "0.1.0",
+  "verification": "UNVERIFIED",
+  "uart": { "baud": 9600, "dataBits": 8, "parity": "NONE", "stopBits": 1 },
+  "framing": { "mode": "TIMEOUT", "frameTimeoutMs": 20, "checksum": "NONE" },
+  "addresses": {},
+  "commands": {},
+  "stateDecoders": [],
+  "responseTimeoutMs": 500,
+  "txPolicy": { "defaultAllow": false, "allowList": [] }
+}
+

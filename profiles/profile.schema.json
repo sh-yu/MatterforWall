@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://wallpad-matter-bridge.local/schema/profile-v1.json",
+  "title": "Wallpad RS485 protocol profile",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "manufacturer", "model", "profileVersion", "verification", "uart", "framing", "commands", "txPolicy"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "manufacturer": { "type": "string", "minLength": 1 },
+    "model": { "type": "string", "minLength": 1 },
+    "profileVersion": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$" },
+    "verification": { "enum": ["UNVERIFIED", "CAPTURE_VERIFIED", "CONTROL_VERIFIED"] },
+    "uart": {
+      "type": "object", "additionalProperties": false,
+      "required": ["baud", "dataBits", "parity", "stopBits"],
+      "properties": {
+        "baud": { "type": "integer", "minimum": 1200, "maximum": 1000000 },
+        "dataBits": { "enum": [7, 8] },
+        "parity": { "enum": ["NONE", "EVEN", "ODD"] },
+        "stopBits": { "enum": [1, 2] }
+      }
+    },
+    "framing": {
+      "type": "object", "additionalProperties": false,
+      "required": ["mode", "frameTimeoutMs", "checksum"],
+      "properties": {
+        "mode": { "enum": ["TIMEOUT", "HEADER_LENGTH", "FIXED_LENGTH"] },
+        "headerHex": { "type": "string", "pattern": "^([0-9A-Fa-f]{2})*$" },
+        "lengthOffset": { "type": "integer", "minimum": 0 },
+        "fixedLength": { "type": "integer", "minimum": 1, "maximum": 1024 },
+        "frameTimeoutMs": { "type": "integer", "minimum": 1, "maximum": 1000 },
+        "checksum": { "enum": ["NONE", "XOR8", "SUM8", "CRC16_CCITT"] }
+      }
+    },
+    "addresses": { "type": "object", "additionalProperties": { "type": "integer", "minimum": 0, "maximum": 255 } },
+    "commands": { "type": "object", "additionalProperties": { "type": "string", "pattern": "^([0-9A-Fa-f]{2})+$" } },
+    "stateDecoders": { "type": "array", "items": { "type": "object" } },
+    "responseTimeoutMs": { "type": "integer", "minimum": 1, "maximum": 10000 },
+    "txPolicy": {
+      "type": "object", "additionalProperties": false,
+      "required": ["defaultAllow", "allowList"],
+      "properties": {
+        "defaultAllow": { "const": false },
+        "allowList": { "type": "array", "items": { "type": "string" }, "uniqueItems": true }
+      }
+    }
+  }
+}
+
