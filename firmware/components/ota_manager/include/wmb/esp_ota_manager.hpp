@@ -21,6 +21,7 @@ public:
     bool active() const override;
     std::uint32_t next_offset() const override;
     std::uint32_t expected_size() const override;
+    const char* last_error() const override { return last_error_; }
 
 private:
     esp_ota_handle_t handle_{0};
@@ -31,6 +32,7 @@ private:
     Bytes image_prefix_;
     mbedtls_sha256_context sha_context_{};
     std::atomic_bool active_{false};
+    const char* last_error_{"NONE"};
 };
 
 }  // namespace wmb

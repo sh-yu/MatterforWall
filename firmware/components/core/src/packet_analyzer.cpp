@@ -46,6 +46,9 @@ std::vector<ChecksumCandidate> checksum_candidates(const Bytes& frame) {
 }
 
 void PacketAnalyzer::observe(const Packet& packet) {
+    // Noisy/sequence-heavy buses must not exhaust the MCU heap.
+    if (packet.data.empty() || packet.data.size() > kMaxFrameBytes) return;
+    if (groups_.size() >= kMaxGroups && groups_.find(packet.data) == groups_.end()) return;
     auto [it, inserted] = groups_.try_emplace(packet.data);
     auto& group = it->second;
     if (inserted) {

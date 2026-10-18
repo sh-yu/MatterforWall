@@ -74,16 +74,30 @@ EspOtaManager::~EspOtaManager() {
 }
 
 bool EspOtaManager::begin(std::uint32_t size, const Bytes& expected_sha256) {
-    if (active_ || size == 0U || expected_sha256.size() != expected_hash_.size() ||
-        !signed_update_validation_enabled()) {
-        ESP_LOGE(kTag, "OTA rejected: signed application validation is required");
+    if (size == 0U || expected_sha256.size() != expected_hash_.size()) {
+        last_error_ = "INVALID_IMAGE_METADATA";
         return false;
     }
-    partition_ = esp_ota_get_next_update_partition(nullptr);
-    if (partition_ == nullptr || size > partition_->size ||
-        esp_ota_begin(partition_, OTA_WITH_SEQUENTIAL_WRITES, &handle_) != ESP_OK) {
+    if (!signed_update_validation_enabled()) {
+        last_error_ = "SIGNED_VALIDATION_REQUIRED";
         return false;
     }
+    const auto* next_partition = esp_ota_get_next_update_partition(nullptr);
+    if (next_partition == nullptr || size > next_partition->size) {
+        last_error_ = "IMAGE_EXCEEDS_OTA_SLOT";
+        return false;
+    }
+    // An explicit new BEGIN restarts an interrupted transfer at offset zero.
+    // Validate metadata first; never change the running partition or NVS.
+    abort();
+    partition_ = next_partition;
+    const auto begin_result = esp_ota_begin(partition_, OTA_WITH_SEQUENTIAL_WRITES, &handle_);
+    if (begin_result != ESP_OK) {
+        last_error_ = begin_result == ESP_ERR_OTA_ROLLBACK_INVALID_STATE
+            ? "RUNNING_IMAGE_NOT_CONFIRMED" : "FLASH_BEGIN_FAILED";
+        return false;
+    }
+    last_error_ = "NONE";
     expected_size_ = size;
     offset_ = 0;
     std::copy(expected_sha256.begin(), expected_sha256.end(), expected_hash_.begin());

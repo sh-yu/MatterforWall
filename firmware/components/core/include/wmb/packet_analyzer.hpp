@@ -32,6 +32,8 @@ std::vector<ChecksumCandidate> checksum_candidates(const Bytes& frame);
 
 class PacketAnalyzer final : public IPacketAnalyzer {
 public:
+    static constexpr std::size_t kMaxGroups = 128;
+    static constexpr std::size_t kMaxFrameBytes = 256;
     void observe(const Packet& packet) override;
     std::size_t unique_group_count() const override;
     std::vector<PacketGroup> groups() const;

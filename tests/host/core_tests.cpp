@@ -77,6 +77,20 @@ void test_safety() {
     expect(!policy.may_transmit("light.on", context), "OTA disables transmit");
 }
 
+void test_analysis_limits() {
+    wmb::PacketAnalyzer analyzer;
+    analyzer.observe({0, wmb::Direction::Rx, {}, true});
+    analyzer.observe({1, wmb::Direction::Rx, wmb::Bytes(257, 1), true});
+    expect(analyzer.unique_group_count() == 0U, "empty and oversized analysis inputs ignored");
+    for (unsigned i = 0; i < 300; ++i) {
+        analyzer.observe({i + 1U, wmb::Direction::Rx,
+            {static_cast<std::uint8_t>(i), static_cast<std::uint8_t>(i >> 8U)}, true});
+    }
+    expect(analyzer.unique_group_count() == wmb::PacketAnalyzer::kMaxGroups, "analyzer memory bounded");
+    analyzer.observe({1000, wmb::Direction::Rx, {0, 0}, true});
+    expect(analyzer.groups().front().count == 2U, "existing groups still update at capacity");
+}
+
 }  // namespace
 
 int main() {
@@ -100,6 +114,7 @@ int main() {
     test_fragmentation();
     test_analysis();
     test_safety();
+    test_analysis_limits();
     if (failures == 0) {
         std::cout << "All portable core tests passed\n";
     }

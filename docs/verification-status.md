@@ -55,11 +55,9 @@ Last updated: 2026-10-15, Asia/Seoul.
 ## Automated
 
 - ESP-IDF v5.4.2 signed firmware 0.4.1 build: passed (Matter disabled).
-- ESP-Matter 1.4.2 configuration: prepared. Native Windows configuration is
-  `HARDWARE_TEST_PENDING`: its generated CMake include paths are POSIX-only
-  and fail with Windows path escapes, so no Matter image has been produced or
-  offered for OTA. Build it in the supported Linux/WSL environment before
-  commissioning.
+- Native Windows Matter configuration encountered POSIX path incompatibility.
+  This was resolved by building the signed 0.4.3 Matter image in Linux/WSL;
+  physical commissioning remains HARDWARE_TEST_PENDING.
 - Signed image: 724,992 bytes; each OTA slot is 1,966,080 bytes; free after the
   required 4 KiB reserve: 1,241,088 bytes.
 - Portable BLE frame, analyzer, and safety-policy sources: warning-clean C6
@@ -84,6 +82,22 @@ Last updated: 2026-10-15, Asia/Seoul.
   expected installed version.
 
 ## HARDWARE_TEST_PENDING
+
+- Firmware 0.4.4: explicit valid BEGIN aborts an unfinished OTA transfer and
+  restarts at offset zero; malformed or oversized metadata does not abort it.
+  BEGIN errors distinguish metadata, signature configuration, slot size,
+  unconfirmed running image and flash-start failure. Finish/reboot excludes
+  conflicting BLE OTA requests. Upload suppresses analysis/packet streaming,
+  not UART reception/statistics. Per-packet INFO logging reduced to DEBUG.
+  Analyzer retains at most 128 unique groups of up to 256 bytes; existing
+  groups continue updating at capacity. Host tests including analysis bounds
+  passed under C++17 with -Wall -Wextra -Wpedantic -Werror on 2026-10-18.
+  OTA recovery, throughput, power-loss and rollback behavior remain
+  HARDWARE_TEST_PENDING. No lighting TX or installation enrollment added.
+  ESP-IDF 5.4.1 Matter signed build passed: 1,576,960 bytes, 389,120 bytes
+  free in the existing 1,966,080-byte OTA slot (4 KiB reserve satisfied).
+  Release manifest version/project/size/signature-sector checks passed;
+  Python repository/release tests passed 4/4. Physical 0.4.4 OTA is pending.
 
 - Android 0.5.2 adds a pure installation-qualification policy requiring a
   reviewed protocol, administrator authentication, explicit TX enable, healthy

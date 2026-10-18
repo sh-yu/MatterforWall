@@ -103,6 +103,7 @@ public:
     virtual bool active() const = 0;
     virtual std::uint32_t next_offset() const = 0;
     virtual std::uint32_t expected_size() const = 0;
+    virtual const char* last_error() const { return "BEGIN_REJECTED"; }
 };
 
 class IPacketAnalyzer {

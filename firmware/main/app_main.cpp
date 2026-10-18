@@ -59,6 +59,8 @@ extern "C" void app_main() {
     }
     transport->force_receive_only();
     transport->set_receive_handler([](wmb::Packet packet) {
+        // Keep UART reception/statistics running, but reserve CPU/BLE for OTA.
+        if (ota_manager != nullptr && ota_manager->active()) return;
         analyzer->observe(packet);
         for (const auto byte : packet.data) {
             const auto candidate = elevator_scanner.feed(byte);
@@ -68,7 +70,7 @@ extern "C" void app_main() {
                              ? "option1_checksum_match" : "option2_checksum_unknown");
             }
         }
-        ESP_LOGI(kTag, "RX len=%u groups=%u", static_cast<unsigned>(packet.data.size()),
+        ESP_LOGD(kTag, "RX len=%u groups=%u", static_cast<unsigned>(packet.data.size()),
                  static_cast<unsigned>(analyzer->unique_group_count()));
         if (ble_manager != nullptr) ble_manager->notify_packet(packet);
     });

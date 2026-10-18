@@ -68,7 +68,12 @@ def publish(folder, version, release_tag=None):
         raise ValueError('Release already exists; inspect it before retrying')
     body = dict(tag_name=tag, target_commitish=sha, name=tag, draft=True,
                 body='Signed firmware ' + version +
-                ' and Android manager with GitHub app updates. Elevator candidates are passive/offline only; '
+                ': interrupted OTA can restart on an explicit new BEGIN; detailed BEGIN errors; '
+                'verification/reboot phase rejects conflicting OTA requests; '
+                'packet streaming/analysis pauses during upload; bounded analyzer memory. '
+                'Includes Android manager 0.5.2. RS485 remains receive-only; '
+                'reviewed light profiles and authenticated control enrollment are not implemented. '
+                'Elevator candidates are passive/offline only; '
                 'live bus and Matter hub commissioning validation: HARDWARE_TEST_PENDING.')
     if release_tag:
         body['body'] = (

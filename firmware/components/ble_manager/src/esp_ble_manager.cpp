@@ -394,6 +394,11 @@ int ble_gatt_access_bridge(std::uint16_t, std::uint16_t attribute,
         if (!manager_instance->encrypted_ || manager_instance->ota_manager_ == nullptr) {
             return BLE_ATT_ERR_INSUFFICIENT_AUTHEN;
         }
+        // finish() runs on a worker. Do not mutate/read its OTA state in parallel,
+        // including the interval between boot selection and reboot.
+        if (manager_instance->ota_finish_pending_) {
+            return BLE_ATT_ERR_UNLIKELY;
+        }
         if (attribute == ota_control_handle && frame->type == BleMessageType::OtaControl &&
             !frame->payload.empty()) {
             const std::uint8_t operation = frame->payload[0];
@@ -409,7 +414,7 @@ int ble_gatt_access_bridge(std::uint16_t, std::uint16_t attribute,
                 const bool begun = manager_instance->ota_manager_->begin(size, hash);
                 manager_instance->notify_ota_status(
                     frame->sequence, operation, begun ? kOtaOk : kOtaInvalidState,
-                    begun ? "READY" : "BEGIN_REJECTED");
+                    begun ? "READY" : manager_instance->ota_manager_->last_error());
                 return 0;
             }
             if (operation == kOtaAbort) {
@@ -545,7 +550,8 @@ bool EspBleManager::attach_shared_host() {
 
 bool EspBleManager::notify_packet(const Packet& packet) {
     const auto connection = connection_handle_.load();
-    if (!started_ || connection == kNoConnection || !packet_subscribed_ || !encrypted_) {
+    if (!started_ || connection == kNoConnection || !packet_subscribed_ || !encrypted_ ||
+        ota_finish_pending_ || (ota_manager_ != nullptr && ota_manager_->active())) {
         return false;
     }
 
@@ -600,7 +606,7 @@ void EspBleManager::ota_finish_task(void* argument) {
             manager->ota_finish_sequence_, kOtaFinish,
             finished ? kOtaOk : kOtaVerificationFailed,
             finished ? "VERIFIED_REBOOTING" : "VERIFY_FAILED");
-        manager->ota_finish_pending_ = false;
+        if (!finished) manager->ota_finish_pending_ = false;
     }
     if (finished) {
         vTaskDelay(pdMS_TO_TICKS(1500));
