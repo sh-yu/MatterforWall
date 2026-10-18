@@ -3,6 +3,7 @@ package dev.wallpad.bridge.ota
 import java.net.HttpURLConnection
 import java.net.URL
 import java.security.MessageDigest
+import java.io.File
 import org.json.JSONObject
 
 data class FirmwareRelease(val version: String, val imageUrl: String, val size: Int, val sha256: String)
@@ -44,6 +45,31 @@ class GitHubReleaseRepository {
         require(hash == release.sha256) { "SHA-256 검증 실패" }
         val info = FirmwareImageValidator.validate(bytes).getOrThrow()
         require(info.version == release.version) { "이미지와 릴리스 버전이 다릅니다." }
+        return bytes
+    }
+
+    fun downloadCached(release: FirmwareRelease, directory: File, progress: (Int) -> Unit): ByteArray {
+        require(release.sha256.matches(Regex("[a-f0-9]{64}")))
+        require(directory.mkdirs() || directory.isDirectory)
+        val cached = File(directory, "${release.sha256}.bin")
+        if (cached.isFile && cached.length() == release.size.toLong()) {
+            val bytes = cached.readBytes()
+            val info = FirmwareImageValidator.validate(bytes).getOrNull()
+            if (info?.sha256Hex == release.sha256 && info.version == release.version) {
+                progress(100)
+                return bytes
+            }
+        }
+        val bytes = download(release, progress)
+        val pending = File(directory, "firmware.part")
+        try {
+            pending.writeBytes(bytes)
+            require(pending.renameTo(cached)) { "캐시 파일 저장 실패" }
+            directory.listFiles()?.filter { it != cached && it.extension == "bin" }
+                ?.forEach { it.delete() }
+        } finally {
+            pending.delete()
+        }
         return bytes
     }
 

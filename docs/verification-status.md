@@ -85,12 +85,25 @@ Last updated: 2026-10-15, Asia/Seoul.
 
 ## HARDWARE_TEST_PENDING
 
+- Guided-learning Android unit tests, lintDebug and assembleDebug passed on
+  2026-10-18. Tests cover the three-round minimum, background exclusion,
+  synthetic exclusion and per-round duplicate suppression. Hardware behavior
+  is not established by these host-side tests.
+- Guided Android light learning: 5-second baseline, 10-second action windows,
+  three-to-five repeated captures, exact-match candidate comparison and checksum
+  hints. Background and synthetic frames are excluded; captures are bounded to
+  500 frames per window and kept in memory only. Candidates do not establish
+  command direction, ACK semantics or control approval. Physical TX remains
+  disabled; verified-profile enrollment and authenticated control are not yet
+  implemented. Real learning and command/response correlation remain pending.
+
 - Electrical continuity and logic-level verification of the exact installed
   RS485 board revision, plus a sustained real wallpad receive capture.
 - BLE sustained packet-stream/backpressure soak testing and OTA power-loss
   injection at multiple offsets.
-- ESP-IDF/esp-matter complete firmware binary size and signed OTA-slot fit on
-  the 4 MB target.
+- Matter firmware 0.4.3 built with ESP-IDF 5.4.1: signed binary 1,576,960
+  bytes, fits the existing 0x1e0000-byte OTA slot. Shared BLE host behavior,
+  Matter OTA boot and hub commissioning still require hardware verification.
 - SmartThings Station Thread commissioning, bridge discovery, light control,
   subscription/state synchronization, fabric persistence, and UI rendering.
 - Deliberate invalid-signature, power-loss, watchdog-failure, and automatic

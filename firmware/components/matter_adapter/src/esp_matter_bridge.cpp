@@ -3,6 +3,8 @@
 #include "esp_log.h"
 #include "esp_matter.h"
 #include "platform/ESP32/OpenthreadLauncher.h"
+#include "platform/ConnectivityManager.h"
+#include "app/server/Server.h"
 
 namespace wmb {
 namespace {
@@ -37,6 +39,10 @@ void event_callback(const ChipDeviceEvent* event, intptr_t) {
         active_bridge->set_commissioned(true);
         ESP_LOGI(kTag, "commissioning complete");
     }
+    if (event->Type == chip::DeviceLayer::DeviceEventType::kCommissioningWindowClosed) {
+        // Management GATT shares the host and still needs discovery for OTA.
+        chip::DeviceLayer::ConnectivityMgr().SetBLEAdvertisingEnabled(true);
+    }
 }
 
 }  // namespace
@@ -48,24 +54,31 @@ bool EspMatterBridge::start() {
     node_t* node = node::create(&node_config, attribute_callback, identify_callback);
     if (node == nullptr) return false;
 
+    endpoint::aggregator::config_t aggregator_config{};
     endpoint_t* aggregator_endpoint = endpoint::aggregator::create(
-        node, ENDPOINT_FLAG_NONE, nullptr);
+        node, &aggregator_config, ENDPOINT_FLAG_NONE, nullptr);
     if (aggregator_endpoint == nullptr) return false;
 
     endpoint::on_off_light::config_t light_config{};
     endpoint_t* light = endpoint::on_off_light::create(
         node, &light_config, ENDPOINT_FLAG_NONE, nullptr);
     if (light == nullptr) return false;
+    endpoint::bridged_node::config_t bridged_config{};
+    bridged_config.bridged_device_basic_information.reachable = false;
+    if (endpoint::bridged_node::add(light, &bridged_config) != ESP_OK ||
+        endpoint::set_parent_endpoint(light, aggregator_endpoint) != ESP_OK) return false;
     light_endpoint_id_ = endpoint::get_id(light);
 
-    esp_openthread_platform_config_t thread_config = {
-        .radio_config = ESP_OPENTHREAD_DEFAULT_RADIO_CONFIG(),
-        .host_config = ESP_OPENTHREAD_DEFAULT_HOST_CONFIG(),
-        .port_config = ESP_OPENTHREAD_DEFAULT_PORT_CONFIG(),
-    };
+    esp_openthread_platform_config_t thread_config{};
+    thread_config.radio_config.radio_mode = RADIO_MODE_NATIVE;
+    thread_config.host_config.host_connection_mode = HOST_CONNECTION_MODE_NONE;
+    thread_config.port_config.storage_partition_name = "nvs";
+    thread_config.port_config.netif_queue_size = 10;
+    thread_config.port_config.task_queue_size = 10;
     set_openthread_platform_config(&thread_config);
     const auto result = esp_matter::start(event_callback);
     if (result != ESP_OK) return false;
+    commissioned_ = chip::Server::GetInstance().GetFabricTable().FabricCount() > 0;
     ESP_LOGI(kTag, "aggregator and On/Off Light endpoint %u created", light_endpoint_id_);
     return true;
 }

@@ -53,6 +53,7 @@ data class DiscoveredBridge(
 )
 
 data class DashboardState(
+    val learning: dev.wallpad.bridge.analysis.GuidedLearningState = dev.wallpad.bridge.analysis.GuidedLearningState(),
     val releaseRepository: String = "",
     val releaseMessage: String = "GitHub 저장소를 입력하세요.",
     val releaseBusy: Boolean = false,
@@ -68,6 +69,7 @@ data class DashboardState(
     val firmwareVersion: String = "확인되지 않음",
     val operatingMode: String = "확인되지 않음",
     val matter: String = "확인되지 않음",
+    val matterManualCode: String? = null,
     val thread: String = "확인되지 않음",
     val rs485Errors: Long = 0,
     val rxFrames: Long = 0,
@@ -273,12 +275,19 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     fun downloadRelease() {
         if (mutableState.value.releaseBusy || updateBusy()) return
+        if (mutableState.value.connection != ConnectionState.READY) {
+            mutableState.update { it.copy(releaseMessage = "ESP에 연결한 뒤 다운로드 및 업데이트를 누르세요.") }
+            return
+        }
         val release = mutableState.value.availableRelease ?: return
         mutableState.update { it.copy(releaseBusy = true, releaseMessage = "다운로드 중…") }
         viewModelScope.launch {
-            runCatching {
+            val result = runCatching {
                 val bytes = withContext(Dispatchers.IO) {
-                    releaseRepository.download(release) { percent -> mutableState.update { it.copy(releaseMessage = "다운로드 $percent%") } }
+                    releaseRepository.downloadCached(release,
+                        java.io.File(getApplication<Application>().cacheDir, "firmware-updates")) { percent ->
+                        mutableState.update { it.copy(releaseMessage = "다운로드 $percent%") }
+                    }
                 }
                 val info = FirmwareImageValidator.validate(bytes, mutableState.value.firmwareVersion).getOrThrow()
                 selectedFirmware = bytes
@@ -287,11 +296,13 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     firmwareFileName = "wallpad-matter-bridge.bin",
                     firmwareCandidateVersion = info.version, firmwareCandidateSize = bytes.size,
                     firmwareSha256 = info.sha256Hex, otaState = FirmwareUpdateState.FILE_READY,
-                    otaProgress = 0, otaMessage = "다운로드·SHA-256 확인 완료. ESP 연결 후 OTA를 시작하세요.",
+                    otaProgress = 0, otaMessage = "캐시·SHA-256 확인 완료 · OTA 준비 중…",
                     releaseMessage = "다운로드 완료 · ${info.version}",
                 ) }
             }.onFailure { error -> mutableState.update { it.copy(releaseMessage = error.message ?: "다운로드 실패") } }
             mutableState.update { it.copy(releaseBusy = false) }
+            if (result.isSuccess && mutableState.value.otaState == FirmwareUpdateState.FILE_READY &&
+                selectedFirmwareInfo?.version == release.version) startFirmwareUpdate()
         }
     }
 
@@ -639,6 +650,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         if (status == BluetoothGatt.GATT_SUCCESS) handleEncodedFrame(value)
         if (uuid == DEVICE_INFO_UUID) {
             gatt.getService(SERVICE_UUID)?.getCharacteristic(DIAGNOSTICS_UUID)?.let(gatt::readCharacteristic)
+        } else if (uuid == DIAGNOSTICS_UUID && mutableState.value.matter == "enabled") {
+            gatt.getService(SERVICE_UUID)?.getCharacteristic(CONFIGURATION_UUID)?.let(gatt::readCharacteristic)
         }
     }
 
@@ -647,6 +660,10 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         val frame = reassembler.accept(decoded) ?: return
         when (frame.type) {
             MessageType.DEVICE_INFO -> parseDeviceInfo(frame)
+            MessageType.CONFIGURATION -> runCatching { JSONObject(frame.payload.decodeToString()) }.onSuccess { json ->
+                // Onboarding code is only held in UI memory, never exported/logged.
+                mutableState.update { it.copy(matterManualCode = json.optString("matterManualCode").takeIf(String::isNotBlank)) }
+            }
             MessageType.DIAGNOSTICS -> parseDiagnostics(frame)
             MessageType.PACKET_STREAM -> parsePacket(frame)
             MessageType.OTA_CONTROL -> handleOtaStatus(frame)
@@ -844,6 +861,14 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 it.copy(
                     deviceName = json.optString("name", it.deviceName ?: "Wallpad Bridge"),
                     firmwareVersion = installedVersion,
+                    matter = json.optString("matter", it.matter),
+                    thread = json.optString("thread", it.thread),
+                    availableRelease = it.availableRelease?.takeIf { release ->
+                        dev.wallpad.bridge.ota.ReleaseVersion.isNewer(release.version, installedVersion)
+                    },
+                    releaseMessage = if (it.availableRelease != null &&
+                        !dev.wallpad.bridge.ota.ReleaseVersion.isNewer(it.availableRelease.version, installedVersion))
+                        "현재 펌웨어가 최신 버전입니다." else it.releaseMessage,
                     operatingMode = json.optString("mode", "확인되지 않음"),
                     otaState = when {
                         it.otaState == FirmwareUpdateState.REBOOTING && expectedVersion == installedVersion ->
@@ -899,6 +924,20 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         val bytes = ByteArray(input.remaining()).also(input::get)
         val packet = CapturedPacket(timestampMicros, direction, bytes, synthetic)
         mutableState.update { current ->
+            val learning = current.learning
+            current.copy(learning = when (learning.phase) {
+                dev.wallpad.bridge.analysis.LearningPhase.BASELINE -> learning.copy(
+                    overflow = learning.overflow || learning.baseline.size >= dev.wallpad.bridge.analysis.GuidedLearning.MAX_FRAMES,
+                    baseline = (learning.baseline + packet).takeLast(dev.wallpad.bridge.analysis.GuidedLearning.MAX_FRAMES),
+                )
+                dev.wallpad.bridge.analysis.LearningPhase.ACTION -> learning.copy(
+                    overflow = learning.overflow || learning.actionPackets.size >= dev.wallpad.bridge.analysis.GuidedLearning.MAX_FRAMES,
+                    actionPackets = (learning.actionPackets + packet).takeLast(dev.wallpad.bridge.analysis.GuidedLearning.MAX_FRAMES),
+                )
+                else -> learning
+            })
+        }
+        mutableState.update { current ->
             if (current.paused) current else {
                 val packets = (current.packets + packet).takeLast(MAX_PACKETS)
                 current.copy(
@@ -923,6 +962,56 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     fun togglePause() = mutableState.update { it.copy(paused = !it.paused) }
 
+    private var learningJob: kotlinx.coroutines.Job? = null
+
+    fun resetLearning(device: String, action: String) {
+        learningJob?.cancel()
+        mutableState.update { it.copy(learning = dev.wallpad.bridge.analysis.GuidedLearningState(device, action)) }
+    }
+
+    fun startLearningRound() {
+        val current = mutableState.value
+        if (current.connection != ConnectionState.READY || otaSession != null || learningJob?.isActive == true) return
+        learningJob = viewModelScope.launch {
+            mutableState.update { it.copy(learning = it.learning.copy(
+                phase = dev.wallpad.bridge.analysis.LearningPhase.BASELINE,
+                baseline = emptyList(), actionPackets = emptyList(), candidates = emptyList(), overflow = false,
+                message = "조작하지 마세요. 평상시 트래픽을 수집합니다.",
+            )) }
+            for (second in 5 downTo 1) {
+                mutableState.update { it.copy(learning = it.learning.copy(secondsLeft = second)) }
+                kotlinx.coroutines.delay(1000)
+                if (mutableState.value.connection != ConnectionState.READY || otaSession != null) {
+                    mutableState.update { it.copy(learning = it.learning.copy(phase = dev.wallpad.bridge.analysis.LearningPhase.READY, secondsLeft = 0, message = "연결 중단 또는 OTA: 이번 회차를 폐기했습니다.")) }
+                    return@launch
+                }
+            }
+            mutableState.update { it.copy(learning = it.learning.copy(
+                phase = dev.wallpad.bridge.analysis.LearningPhase.ACTION,
+                message = "지금 ${it.learning.device}을(를) ${it.learning.action} 조작하세요. 같은 동작만 1회 하세요.",
+            )) }
+            for (second in 10 downTo 1) {
+                mutableState.update { it.copy(learning = it.learning.copy(secondsLeft = second)) }
+                kotlinx.coroutines.delay(1000)
+                if (mutableState.value.connection != ConnectionState.READY || otaSession != null) {
+                    mutableState.update { it.copy(learning = it.learning.copy(phase = dev.wallpad.bridge.analysis.LearningPhase.READY, secondsLeft = 0, message = "연결 중단 또는 OTA: 이번 회차를 폐기했습니다.")) }
+                    return@launch
+                }
+            }
+            mutableState.update {
+                val learning = it.learning
+                val rounds = if (!learning.overflow && learning.baseline.isNotEmpty() && learning.actionPackets.isNotEmpty()) {
+                    (learning.rounds + dev.wallpad.bridge.analysis.LearningRound(learning.baseline, learning.actionPackets)).takeLast(5)
+                } else learning.rounds
+                it.copy(learning = learning.copy(
+                    phase = dev.wallpad.bridge.analysis.LearningPhase.REVIEW, secondsLeft = 0,
+                    rounds = rounds, candidates = dev.wallpad.bridge.analysis.GuidedLearning.candidates(rounds),
+                    message = if (learning.overflow) "500패킷 한도 초과: 이번 회차는 폐기했습니다." else "${rounds.size}/3회 이상 필요. 다음 회차 전 장치를 반대 상태로 돌려놓으세요. 수신이 없으면 회차를 저장하지 않습니다.",
+                ))
+            }
+        }
+    }
+
     fun clearPackets() = mutableState.update { it.copy(packets = emptyList(), groups = emptyList()) }
 
     override fun onCleared() {
@@ -938,6 +1027,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private companion object {
         val SERVICE_UUID: UUID = UUID.fromString("7bd10000-5f7b-4f4d-9c25-94c1e8f38a10")
         val DEVICE_INFO_UUID: UUID = UUID.fromString("7bd10001-5f7b-4f4d-9c25-94c1e8f38a10")
+        val CONFIGURATION_UUID: UUID = UUID.fromString("7bd10002-5f7b-4f4d-9c25-94c1e8f38a10")
         val PACKET_STREAM_UUID: UUID = UUID.fromString("7bd10003-5f7b-4f4d-9c25-94c1e8f38a10")
         val RESPONSE_UUID: UUID = UUID.fromString("7bd10005-5f7b-4f4d-9c25-94c1e8f38a10")
         val DIAGNOSTICS_UUID: UUID = UUID.fromString("7bd10006-5f7b-4f4d-9c25-94c1e8f38a10")

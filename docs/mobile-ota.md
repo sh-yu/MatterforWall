@@ -10,6 +10,18 @@ firmware key is stored in the app. Public repositories only are supported.
 The checksum manifest detects corrupt downloads; it is not a cryptographic trust
 anchor. The installed ESP firmware is the signature trust anchor.
 
+Manager 0.5.0 combines download and installation into one action. Connect ESP,
+check the latest firmware, then tap Download and update. Firmware is cached under
+the private `cache/firmware-updates` directory using its SHA-256 filename, checked
+again before reuse, and sent directly through BLE. A damaged cache is never sent;
+older cached binaries are removed after a replacement is verified. Download or
+BLE failure can be retried with the same button without choosing a file.
+
+App downloads use `cache/app-updates/manager.apk`. The combined button verifies
+and opens Android's installer automatically. If installation-source permission
+is required, returning after allowing it resumes installation. The operating
+system's installation confirmation remains required.
+
 ## App self-update (manager 0.4.0+)
 
 Open Settings → App update. The app uses the configured public repository and

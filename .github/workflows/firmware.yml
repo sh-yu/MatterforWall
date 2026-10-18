@@ -10,28 +10,31 @@ jobs:
   esp32c6-matter:
     runs-on: ubuntu-24.04
     timeout-minutes: 60
+    container: espressif/idf:v5.4.1
     steps:
       - uses: actions/checkout@v4
       - name: Fetch pinned esp-matter SDK
+        shell: bash
         run: |
-          git clone --depth 1 --branch release/v1.4.2 --recurse-submodules --shallow-submodules \
-            https://github.com/espressif/esp-matter.git "$RUNNER_TEMP/esp-matter"
-      - name: Install pinned SDK toolchain
-        working-directory: ${{ runner.temp }}/esp-matter
-        run: ./install.sh
+          . /opt/esp/idf/export.sh
+          export ESP_MATTER_PATH="$RUNNER_TEMP/esp-matter"
+          bash scripts/prepare_matter_sdk.sh
       - name: Build ESP32-C6 Matter firmware
         shell: bash
         run: |
-          source "$RUNNER_TEMP/esp-matter/export.sh"
+          . /opt/esp/idf/export.sh
           export ESP_MATTER_PATH="$RUNNER_TEMP/esp-matter"
+          export PATH="$ESP_MATTER_PATH/connectedhomeip/connectedhomeip/.environment/cipd/packages/pigweed:$PATH"
+          # Disposable CI key: no production secret is exposed to PR code.
+          umask 077
+          mkdir -p .secrets
+          openssl ecparam -name prime256v1 -genkey -noout -out .secrets/wmb_ota_signing_key.pem
           cd firmware
-          idf.py set-target esp32c6
-          echo 'CONFIG_WMB_ENABLE_MATTER_EXPERIMENTAL=y' >> sdkconfig
-          idf.py build
+          "$IDF_PYTHON_ENV_PATH/bin/python" "$IDF_PATH/tools/idf.py" -B build -D SDKCONFIG=sdkconfig.matter-ci -D 'SDKCONFIG_DEFAULTS=sdkconfig.defaults;sdkconfig.matter.defaults' build
           python ../scripts/check_ota_size.py build/wallpad-matter-bridge.bin partitions.csv
       - uses: actions/upload-artifact@v4
         with:
-          name: esp32c6-firmware
+          name: NON_DEPLOYABLE_CI-firmware
           path: |
             firmware/build/wallpad-matter-bridge.bin
             firmware/build/bootloader/bootloader.bin

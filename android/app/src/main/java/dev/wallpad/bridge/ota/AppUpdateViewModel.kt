@@ -34,6 +34,7 @@ class AppUpdateViewModel(application: Application) : AndroidViewModel(applicatio
     val state = mutableState.asStateFlow()
     private val context get() = getApplication<Application>()
     private val apk get() = File(context.cacheDir, "app-updates/manager.apk")
+    private var waitingForInstallPermission = false
     @Suppress("DEPRECATION")
     private fun installed() = context.packageManager.getPackageInfo(context.packageName, signatureFlags())
     private fun signatureFlags() = if (Build.VERSION.SDK_INT >= 28) PackageManager.GET_SIGNING_CERTIFICATES else PackageManager.GET_SIGNATURES
@@ -75,28 +76,31 @@ class AppUpdateViewModel(application: Application) : AndroidViewModel(applicatio
         }
     }
 
-    fun download() {
+    fun downloadAndInstall() {
         val release = mutableState.value.release ?: return
         if (mutableState.value.busy) return
         mutableState.update { it.copy(busy = true, ready = false, message = "APK 다운로드 중…") }
         viewModelScope.launch {
-            runCatching {
+            val result = runCatching {
                 withContext(Dispatchers.IO) {
-                    val bytes = github.fetch(release.url, release.size) { progress ->
-                        mutableState.update { it.copy(message = "APK 다운로드 $progress%") }
-                    }
+                    val previous = apk.takeIf { it.isFile && it.length() == release.size.toLong() }?.readBytes()
+                    val bytes = if (previous != null && digest(previous) == release.hash) previous
+                        else github.fetch(release.url, release.size) { progress ->
+                            mutableState.update { it.copy(message = "APK 다운로드 $progress%") }
+                        }
                     require(bytes.size == release.size && digest(bytes) == release.hash) { "APK 크기/SHA-256 검증 실패" }
                     kotlin.check(apk.parentFile!!.mkdirs() || apk.parentFile!!.isDirectory)
                     apk.writeBytes(bytes)
                     verify(release)
                 }
             }.onSuccess {
-                mutableState.update { it.copy(ready = true, message = "APK 검증 완료 · 앱 설치를 누르세요.") }
+                mutableState.update { it.copy(ready = true, message = "APK 검증 완료 · 설치 화면 준비 중…") }
             }.onFailure { error ->
                 apk.delete()
                 mutableState.update { it.copy(ready = false, message = error.message ?: "다운로드 실패") }
             }
             mutableState.update { it.copy(busy = false) }
+            if (result.isSuccess) install()
         }
     }
 
@@ -119,9 +123,10 @@ class AppUpdateViewModel(application: Application) : AndroidViewModel(applicatio
         val release = mutableState.value.release ?: return
         runCatching {
             if (!context.packageManager.canRequestPackageInstalls()) {
+                waitingForInstallPermission = true
                 context.startActivity(Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
                     Uri.parse("package:${context.packageName}")).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-                mutableState.update { it.copy(message = "이 출처 허용을 켠 뒤 돌아와 앱 설치를 다시 누르세요.") }
+                mutableState.update { it.copy(message = "이 출처 허용을 켜고 돌아오면 설치를 계속합니다.") }
                 return
             }
             verify(release)
@@ -131,6 +136,12 @@ class AppUpdateViewModel(application: Application) : AndroidViewModel(applicatio
                 .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK))
             mutableState.update { it.copy(message = "Android 설치 화면에서 업데이트를 승인하세요. 취소하면 다시 설치할 수 있습니다.") }
         }.onFailure { error -> mutableState.update { it.copy(message = error.message ?: "설치 화면을 열지 못했습니다.") } }
+    }
+
+    fun resumePendingInstall() {
+        if (!waitingForInstallPermission) return
+        waitingForInstallPermission = false
+        if (context.packageManager.canRequestPackageInstalls()) install()
     }
 
     companion object { private const val MAX_APK_SIZE = 32 * 1024 * 1024 }

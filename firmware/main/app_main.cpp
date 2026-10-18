@@ -22,6 +22,15 @@ std::unique_ptr<wmb::EspOtaManager> ota_manager;
 std::unique_ptr<wmb::EspMatterBridge> matter;
 wmb::ElevatorCandidateScanner elevator_scanner;
 
+void rollback_failed_update() {
+    const auto* running = esp_ota_get_running_partition();
+    esp_ota_img_states_t state{};
+    if (running != nullptr && esp_ota_get_state_partition(running, &state) == ESP_OK &&
+        state == ESP_OTA_IMG_PENDING_VERIFY) {
+        esp_ota_mark_app_invalid_rollback_and_reboot();
+    }
+}
+
 }  // namespace
 
 extern "C" void app_main() {
@@ -32,6 +41,7 @@ extern "C" void app_main() {
         // user configuration. Recovery must be an explicit physical/admin
         // maintenance action, never an unattended boot side effect.
         ESP_LOGE(kTag, "NVS recovery required; preserving Matter fabric and user configuration");
+        rollback_failed_update();
         return;
     }
     ESP_ERROR_CHECK(nvs_result);
@@ -40,18 +50,13 @@ extern "C" void app_main() {
     transport = std::make_unique<wmb::EspRs485Transport>();
     ota_manager = std::make_unique<wmb::EspOtaManager>();
     ble_manager = std::make_unique<wmb::EspBleManager>();
-#if !CONFIG_WMB_ENABLE_MATTER_EXPERIMENTAL
     if (!ble_manager->start(*ota_manager,
                             [] { if (transport != nullptr) transport->force_receive_only(); },
                             [] { return transport == nullptr ? wmb::Rs485Stats{} : transport->stats(); })) {
         ESP_LOGE(kTag, "BLE management service initialization failed");
+        rollback_failed_update();
         return;
     }
-#else
-    // Matter owns the NimBLE host while its commissioning window is open.
-    // Starting the management GATT host here would initialize NimBLE twice.
-    ESP_LOGI(kTag, "Matter commissioning owns BLE; management GATT deferred");
-#endif
     transport->force_receive_only();
     transport->set_receive_handler([](wmb::Packet packet) {
         analyzer->observe(packet);
@@ -71,6 +76,7 @@ extern "C" void app_main() {
     const wmb::UartConfig uart{9600, 8, wmb::Parity::None, 1, 20};
     if (!transport->configure(uart)) {
         ESP_LOGE(kTag, "RS485 initialization failed; TX remains disabled");
+        rollback_failed_update();
         return;
     }
     ESP_LOGW(kTag, "PASSIVE_SNIFFER active; KOCOM protocol is unverified");
@@ -78,6 +84,12 @@ extern "C" void app_main() {
     matter = std::make_unique<wmb::EspMatterBridge>();
     if (!matter->start()) {
         ESP_LOGE(kTag, "Matter initialization failed");
+        rollback_failed_update();
+        return;
+    }
+    if (!ble_manager->attach_shared_host()) {
+        ESP_LOGE(kTag, "Matter BLE management attachment failed; preserve rollback");
+        rollback_failed_update();
         return;
     }
 #else

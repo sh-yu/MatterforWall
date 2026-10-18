@@ -16,12 +16,22 @@
 #include "store/config/ble_store_config.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#if CONFIG_WMB_ENABLE_MATTER_EXPERIMENTAL
+#include "platform/ConnectivityManager.h"
+#include "platform/internal/BLEManager.h"
+#include "platform/PlatformManager.h"
+#include "setup_payload/OnboardingCodesUtil.h"
+#include "esp_openthread.h"
+#include "esp_openthread_lock.h"
+#include "openthread/thread.h"
+#endif
 
 #include <algorithm>
 #include <array>
 #include <cstdio>
 #include <cstring>
 #include <utility>
+#include <vector>
 
 extern "C" void ble_store_config_init(void);
 
@@ -87,6 +97,10 @@ std::uint16_t ota_control_handle;
 std::uint16_t ota_data_handle;
 std::uint8_t own_address_type;
 EspBleManager* manager_instance;
+bool shared_host = false;
+#if CONFIG_WMB_ENABLE_MATTER_EXPERIMENTAL
+ble_gap_event_listener shared_listener{};
+#endif
 
 int append_bytes(os_mbuf* output, const void* data, std::size_t size) {
     return os_mbuf_append(output, data, static_cast<std::uint16_t>(size)) == 0
@@ -155,6 +169,8 @@ void on_sync() {
 }
 
 void advertise() {
+    // Matter owns advertising and host lifecycle in shared mode.
+    if (shared_host) return;
     ble_hs_adv_fields fields{};
     fields.flags = BLE_HS_ADV_F_DISC_GEN | BLE_HS_ADV_F_BREDR_UNSUP;
     fields.uuids128 = const_cast<ble_uuid128_t*>(&kServiceUuid);
@@ -236,7 +252,7 @@ int ble_gap_event_bridge(ble_gap_event* event, void*) {
                 manager_instance->connection_handle_ = event->connect.conn_handle;
                 manager_instance->encrypted_ = false;
                 ESP_LOGI(kTag, "BLE central connected");
-                const int security_result = ble_gap_security_initiate(event->connect.conn_handle);
+                const int security_result = shared_host ? 0 : ble_gap_security_initiate(event->connect.conn_handle);
                 if (security_result != 0 && security_result != BLE_HS_EALREADY) {
                     ESP_LOGW(kTag, "security initiation failed; rc=%d", security_result);
                 }
@@ -299,18 +315,42 @@ int ble_gatt_access_bridge(std::uint16_t, std::uint16_t attribute,
     if (context->op == BLE_GATT_ACCESS_OP_READ_CHR) {
         if (attribute == device_info_handle) {
             const esp_app_desc_t* description = esp_app_get_description();
-            char value[256];
+            const char* thread_state = "disabled";
+#if CONFIG_WMB_ENABLE_MATTER_EXPERIMENTAL
+            thread_state = "busy";
+            if (esp_openthread_lock_acquire(pdMS_TO_TICKS(50))) {
+                auto* instance = esp_openthread_get_instance();
+                const auto role = instance == nullptr ? OT_DEVICE_ROLE_DISABLED : otThreadGetDeviceRole(instance);
+                thread_state = (role == OT_DEVICE_ROLE_CHILD || role == OT_DEVICE_ROLE_ROUTER || role == OT_DEVICE_ROLE_LEADER)
+                                   ? "attached" : "detached";
+                esp_openthread_lock_release();
+            }
+#endif
+            char value[320];
             std::snprintf(value, sizeof(value),
                           "{\"name\":\"Wallpad Bridge\",\"firmware\":\"%s\","
-                          "\"mode\":\"PASSIVE_SNIFFER\",\"txEnabled\":false}",
-                          description == nullptr ? "unknown" : description->version);
+                          "\"mode\":\"PASSIVE_SNIFFER\",\"txEnabled\":false,\"matter\":\"%s\",\"thread\":\"%s\"}",
+                          description == nullptr ? "unknown" : description->version,
+                          shared_host ? "enabled" : "disabled", thread_state);
             const auto encoded = make_text_frame(BleMessageType::DeviceInfo, 0, value);
             return append_bytes(context->om, encoded.data(), encoded.size());
         }
         if (attribute == configuration_handle) {
+#if CONFIG_WMB_ENABLE_MATTER_EXPERIMENTAL
+            char manual_code[32]{};
+            chip::MutableCharSpan manual_span(manual_code, sizeof(manual_code));
+            chip::DeviceLayer::PlatformMgr().LockChipStack();
+            const auto code_result = GetManualPairingCode(manual_span, chip::RendezvousInformationFlags(chip::RendezvousInformationFlag::kBLE));
+            chip::DeviceLayer::PlatformMgr().UnlockChipStack();
+            if (code_result != CHIP_NO_ERROR) return BLE_ATT_ERR_UNLIKELY;
+            char value[224]{};
+            std::snprintf(value, sizeof(value),
+                          "{\"baud\":9600,\"txEnabled\":false,\"matterManualCode\":\"%s\"}", manual_code);
+#else
             constexpr char value[] =
                 "{\"baud\":9600,\"dataBits\":8,\"parity\":\"NONE\","
                 "\"stopBits\":1,\"frameTimeoutMs\":20,\"txEnabled\":false}";
+#endif
             const auto encoded = make_text_frame(BleMessageType::Configuration, 0, value);
             return append_bytes(context->om, encoded.data(), encoded.size());
         }
@@ -438,6 +478,27 @@ bool EspBleManager::start(IOtaManager& ota_manager, std::function<void()> force_
     ota_manager_ = &ota_manager;
     manager_instance = this;
 
+#if CONFIG_WMB_ENABLE_MATTER_EXPERIMENTAL
+    shared_host = true;
+    std::vector<ble_gatt_svc_def> extra_services{services[0]};
+    if (chip::DeviceLayer::Internal::BLEMgrImpl().ConfigureExtraServices(extra_services, false) != CHIP_NO_ERROR) {
+        manager_instance = nullptr;
+        return false;
+    }
+    // Scan response contains the management UUID and a short discoverable name;
+    // Matter keeps its own commissioning service advertisement unchanged.
+    std::array<std::uint8_t, 23> response{0x11, 0x07};
+    std::copy(std::begin(kServiceUuid.value), std::end(kServiceUuid.value), response.begin() + 2);
+    response[18] = 4; response[19] = 0x09;
+    response[20] = 'W'; response[21] = 'M'; response[22] = 'B';
+    if (chip::DeviceLayer::Internal::BLEMgrImpl().ConfigureScanResponseData(chip::ByteSpan(response.data(), response.size())) != CHIP_NO_ERROR) {
+        manager_instance = nullptr;
+        return false;
+    }
+    started_ = true;
+    return true;
+#endif
+
     if (nimble_port_init() != ESP_OK) {
         manager_instance = nullptr;
         return false;
@@ -463,6 +524,23 @@ bool EspBleManager::start(IOtaManager& ota_manager, std::function<void()> force_
     nimble_port_freertos_init(host_task);
     started_ = true;
     return true;
+}
+
+bool EspBleManager::attach_shared_host() {
+#if CONFIG_WMB_ENABLE_MATTER_EXPERIMENTAL
+    for (unsigned attempt = 0; attempt < 100U && !ble_hs_synced(); ++attempt) {
+        vTaskDelay(pdMS_TO_TICKS(100));
+    }
+    if (!ble_hs_synced() || ble_gap_event_listener_register(&shared_listener, ble_gap_event_bridge, nullptr) != 0) return false;
+    // Do not reclaim BLE RAM after commissioning: management OTA must remain
+    // available on the same initialized host.
+    chip::DeviceLayer::PlatformMgr().LockChipStack();
+    const auto result = chip::DeviceLayer::ConnectivityMgr().SetBLEAdvertisingEnabled(true);
+    chip::DeviceLayer::PlatformMgr().UnlockChipStack();
+    return result == CHIP_NO_ERROR;
+#else
+    return true;
+#endif
 }
 
 bool EspBleManager::notify_packet(const Packet& packet) {

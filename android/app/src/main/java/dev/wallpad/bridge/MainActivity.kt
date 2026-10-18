@@ -131,7 +131,7 @@ private fun ManagerApp(vm: AppViewModel = viewModel()) {
             when (screen) {
                 Screen.DASHBOARD -> Dashboard(state, vm::scan, vm::connect, vm::disconnect)
                 Screen.MONITOR -> Monitor(state, vm::togglePause, vm::clearPackets)
-                Screen.ANALYZER -> Analyzer(state)
+                Screen.ANALYZER -> LearningScreen(state, vm::resetLearning, vm::startLearningRound)
                 Screen.ELEVATOR -> ElevatorResearchScreen(state)
                 Screen.FIRMWARE -> FirmwareScreen(
                     state = state,
@@ -439,9 +439,9 @@ private fun FirmwareScreen(
                         Text("최신 업데이트 확인")
                     }
                     if (state.availableRelease != null) {
-                        Button(onClick = downloadRelease, enabled = !busy && !state.releaseBusy) { Text("최신 이미지 다운로드") }
+                        Button(onClick = downloadRelease, enabled = !busy && !state.releaseBusy && state.connection == ConnectionState.READY) { Text("다운로드 및 업데이트") }
                     }
-                    Text("다운로드 후 아래 OTA 시작 버튼으로 설치합니다. 암호 서명은 ESP가 최종 검증합니다.")
+                    Text("검증한 파일은 캐시에 보관하고 바로 ESP 업데이트를 시작합니다.")
                 }
             }
         }
@@ -449,12 +449,18 @@ private fun FirmwareScreen(
             Card(colors = CardDefaults.cardColors(containerColor = Color.White)) {
                 Column(Modifier.fillMaxWidth().padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     DetailRow("현재 버전", state.firmwareVersion)
+                    DetailRow("Matter", state.matter)
+                    DetailRow("Thread", state.thread)
+                    state.matterManualCode?.let { code ->
+                        DetailRow("Matter 연결 코드", code)
+                        Text("SmartThings에서 Matter 기기 추가 → 코드 직접 입력으로 연결하세요. 테스트 인증서 기반 펌웨어입니다.")
+                    }
                     DetailRow("선택 파일", state.firmwareFileName ?: "선택되지 않음")
                     DetailRow("새 버전", state.firmwareCandidateVersion ?: "-")
                     DetailRow("파일 크기", if (state.firmwareCandidateSize > 0) formatBytes(state.firmwareCandidateSize.toLong()) else "-")
                     state.firmwareSha256?.let { hash -> DetailRow("SHA-256", hash.take(12) + "…") }
                     Button(onClick = chooseFile, enabled = !busy && !state.releaseBusy, modifier = Modifier.fillMaxWidth()) {
-                        Text("서명된 .bin 선택")
+                        Text("수동 파일 선택 · 복구용")
                     }
                 }
             }

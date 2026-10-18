@@ -63,9 +63,9 @@ def publish(folder, version):
     if existing:
         raise ValueError('Release already exists; inspect it before retrying')
     body = dict(tag_name=tag, target_commitish=sha, name=tag, draft=True,
-                body='Signed BLE management firmware ' + version +
+                body='Signed firmware ' + version +
                 ' and Android manager with GitHub app updates. Elevator candidates are passive/offline only; '
-                'live bus and GitHub-to-device OTA verification: HARDWARE_TEST_PENDING.')
+                'live bus and Matter hub commissioning validation: HARDWARE_TEST_PENDING.')
     release = request(base + '/releases', json.dumps(body).encode())
     upload = release['upload_url'].split('{')[0]
     for name in names:

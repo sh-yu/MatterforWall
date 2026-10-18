@@ -20,6 +20,7 @@ public:
     bool notify_packet(const Packet& packet) override;
     bool notify_response(std::uint16_t sequence, const Bytes& payload) override;
     bool administrator_authenticated() const override;
+    bool attach_shared_host();
 
 private:
     std::function<Rs485Stats()> stats_provider_;

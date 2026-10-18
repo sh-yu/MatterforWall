@@ -11,12 +11,18 @@ concurrency:
 jobs:
   firmware:
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
-    container: espressif/idf:v5.4.2
+    timeout-minutes: 60
+    container: espressif/idf:v5.4.1
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+      - name: Prepare pinned Matter SDK
+        shell: bash
+        run: |
+          . /opt/esp/idf/export.sh
+          export ESP_MATTER_PATH="$RUNNER_TEMP/esp-matter"
+          bash scripts/prepare_matter_sdk.sh
       - name: Provision existing device signing key
         shell: bash
         env:
@@ -28,13 +34,15 @@ jobs:
           mkdir -p .secrets
           printf '%s' "$KEY_B64" | base64 --decode > .secrets/wmb_ota_signing_key.pem
           python scripts/release_manifest.py --check-version "$GITHUB_REF_NAME"
-      - name: Build signed BLE management firmware
+      - name: Build signed Matter firmware with shared BLE OTA
         shell: bash
         run: |
           set -euo pipefail
           . /opt/esp/idf/export.sh
+          export ESP_MATTER_PATH="$RUNNER_TEMP/esp-matter"
+          export PATH="$ESP_MATTER_PATH/connectedhomeip/connectedhomeip/.environment/cipd/packages/pigweed:$PATH"
           cd firmware
-          idf.py build
+          "$IDF_PYTHON_ENV_PATH/bin/python" "$IDF_PATH/tools/idf.py" -B build -D SDKCONFIG=sdkconfig.matter-release -D 'SDKCONFIG_DEFAULTS=sdkconfig.defaults;sdkconfig.matter.defaults' build
           python ../scripts/check_ota_size.py build/wallpad-matter-bridge.bin partitions.csv
           python ../scripts/release_manifest.py --image build/wallpad-matter-bridge.bin --output build/firmware-update.json
       - uses: actions/upload-artifact@v4
