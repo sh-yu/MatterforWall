@@ -53,6 +53,7 @@ data class DiscoveredBridge(
 )
 
 data class DashboardState(
+    val learnedLights: List<dev.wallpad.bridge.data.LearnedLightDraft> = emptyList(),
     val learning: dev.wallpad.bridge.analysis.GuidedLearningState = dev.wallpad.bridge.analysis.GuidedLearningState(),
     val releaseRepository: String = "",
     val releaseMessage: String = "GitHub 저장소를 입력하세요.",
@@ -114,8 +115,20 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private var awaitingOtaVersion: String? = null
     private var beginAccepted = false
     private var queryResolved = false
+    private var learnedLightsLoaded = false
 
     init {
+        viewModelScope.launch {
+            val saved = withContext(Dispatchers.IO) {
+                val file = java.io.File(getApplication<Application>().filesDir, "learned-lights.json")
+                runCatching { if (file.exists()) dev.wallpad.bridge.data.LearnedLightDrafts.decode(file.readText()) else emptyList() }
+            }
+            saved.onSuccess { drafts ->
+                mutableState.update { it.copy(learnedLights = drafts) }
+                learnedLightsLoaded = true
+            }
+                .onFailure { mutableState.update { state -> state.copy(statusMessage = "저장된 학습 파일을 읽지 못했습니다. 원본 파일을 보존합니다.") } }
+        }
         if (mutableState.value.releaseRepository.isNotBlank()) checkRelease()
     }
 
@@ -382,6 +395,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             failOta(validation.exceptionOrNull()?.message ?: "펌웨어 재검사 실패")
             return
         }
+        requestOtaConnectionPriority()
         otaSession = OtaSession(image)
         awaitingOtaVersion = info.version
         pendingReconnectAddress = mutableState.value.deviceAddress
@@ -424,7 +438,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                             statusMessage = "연결됨 · 보안 채널과 MTU를 준비하는 중입니다…",
                         )
                     }
-                    if (!gatt.requestMtu(247)) gatt.discoverServices()
+                    if (!gatt.requestMtu(517)) gatt.discoverServices()
                 }
                 BluetoothProfile.STATE_DISCONNECTED -> {
                     val beforeDisconnect = mutableState.value
@@ -775,7 +789,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private fun sendNextOtaChunk() {
         val session = otaSession ?: return
         if (writeKind != null) return
-        val maxChunk = (negotiatedMtu - BLE_WRITE_OVERHEAD).coerceIn(MIN_OTA_CHUNK, MAX_OTA_CHUNK)
+        val maxChunk = dev.wallpad.bridge.ota.OtaTransferSizing.chunkSize(negotiatedMtu)
         val chunkSize = minOf(maxChunk, session.image.size - session.offset)
         if (chunkSize <= 0) {
             sendOtaFinish()
@@ -841,6 +855,11 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         }
         if (!queued || withoutResponse) writeKind = null
         return queued
+    }
+
+    @SuppressLint("MissingPermission")
+    private fun requestOtaConnectionPriority() {
+        bluetoothGatt?.requestConnectionPriority(BluetoothGatt.CONNECTION_PRIORITY_HIGH)
     }
 
     private fun failOta(message: String) {
@@ -962,6 +981,40 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     fun togglePause() = mutableState.update { it.copy(paused = !it.paused) }
 
+    private val learningSaveMutex = kotlinx.coroutines.sync.Mutex()
+
+    fun saveLearnedLight(name: String, hex: String) {
+        if (!learnedLightsLoaded) {
+            mutableState.update { it.copy(learning = it.learning.copy(message = "저장 파일 로딩을 완료하지 못해 덮어쓰지 않습니다.")) }
+            return
+        }
+        val snapshot = mutableState.value
+        val draft = runCatching { dev.wallpad.bridge.data.LearnedLightDrafts.create(
+            snapshot.deviceAddress ?: "", name, snapshot.learning, hex,
+        ) }.getOrElse {
+            mutableState.update { state -> state.copy(learning = state.learning.copy(message = "장치 이름·연결·학습 후보를 확인하세요.")) }
+            return
+        }
+        viewModelScope.launch {
+            learningSaveMutex.lock()
+            try {
+                val drafts = mutableState.value.learnedLights.filterNot {
+                    it.bridgeAddress == draft.bridgeAddress && it.name == draft.name && it.action == draft.action
+                } + draft
+                withContext(Dispatchers.IO) {
+                    val encoded = dev.wallpad.bridge.data.LearnedLightDrafts.encode(drafts)
+                    val file = android.util.AtomicFile(java.io.File(getApplication<Application>().filesDir, "learned-lights.json"))
+                    val stream = file.startWrite()
+                    try { stream.write(encoded.toByteArray(Charsets.UTF_8)); file.finishWrite(stream) }
+                    catch (error: Exception) { file.failWrite(stream); throw error }
+                }
+                mutableState.update { it.copy(learnedLights = drafts, learning = it.learning.copy(message = "학습 초안 저장 완료. 검증 전이며 송신 권한은 부여되지 않습니다.")) }
+            } catch (error: Exception) {
+                mutableState.update { it.copy(learning = it.learning.copy(message = "저장 실패: 최대 32개 동작 또는 저장 공간을 확인하세요.")) }
+            } finally { learningSaveMutex.unlock() }
+        }
+    }
+
     private var learningJob: kotlinx.coroutines.Job? = null
 
     fun resetLearning(device: String, action: String) {
@@ -1043,11 +1096,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         const val OTA_QUERY = 4
         const val OTA_DATA_ACK = 5
         const val OTA_OK = 0
-        const val BLE_WRITE_OVERHEAD = 16
-        const val MIN_OTA_CHUNK = 7
-        const val MAX_OTA_CHUNK = 220
         const val RECONNECT_DELAY_MS = 4_000L
-        const val CHUNK_INTERVAL_MS = 12L
+        const val CHUNK_INTERVAL_MS = 0L
         const val CHUNK_RETRY_DELAY_MS = 80L
         const val OTA_FINISH_TIMEOUT_MS = 20_000L
         const val MAX_CHUNK_RETRIES = 5

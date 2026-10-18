@@ -85,6 +85,35 @@ Last updated: 2026-10-15, Asia/Seoul.
 
 ## HARDWARE_TEST_PENDING
 
+- Android 0.5.2 adds a pure installation-qualification policy requiring a
+  reviewed protocol, administrator authentication, explicit TX enable, healthy
+  bus, no OTA and learned ON/OFF evidence before testing; qualification then
+  requires three successful correlated ON and OFF attempts. Echo, synthetic,
+  duplicate, timed-out and failed attempts cannot qualify. Identity includes
+  bridge/profile version/address/channel. This policy is NOT connected to a
+  real protocol adapter, UI test runner or firmware enrollment; there are zero
+  reviewed lighting profiles, so no real TX/automatic approval is available.
+  UI and release notes disclose this. Firmware remains unchanged at 0.4.3.
+  Four qualification-policy unit tests passed (minimum counts, live safety
+  gates, invalid evidence, identity changes/duplicates). Full Android unit
+  tests, lintDebug and assembleDebug passed on 2026-10-18.
+
+- Android 0.5.2 OTA optimization source: request MTU 517 and high connection
+  priority, derive chunk size from ATT and 512-byte attribute limits (7/231/499
+  bytes at MTU 23/247/517), remove the extra 12 ms post-ACK delay. Stop-and-wait
+  offset ACKs and image verification remain unchanged. Added sizing unit test.
+  Build/test attempt was initially blocked by the external cache permissions;
+  after access was restored, unit tests, lint and assembleDebug passed on
+  2026-10-18. Not published or hardware-throughput-tested. Peer MTU may remain
+  247 or smaller.
+- Named per-bridge light learning drafts now persist on Android with separate
+  on/off actions, baseline/action timestamped evidence and explicit pending
+  verification status. Atomic file writes protect existing drafts. Saving or
+  reloading a draft cannot grant CONTROL_VERIFIED. Persistence unit tests,
+  Android lint and debug build passed; real capture/restore remains
+  HARDWARE_TEST_PENDING. Firmware authenticated enrollment, verified protocol
+  adapters, command dispatch and Matter light state binding remain unimplemented.
+
 - Guided-learning Android unit tests, lintDebug and assembleDebug passed on
   2026-10-18. Tests cover the three-round minimum, background exclusion,
   synthetic exclusion and per-round duplicate suppression. Hardware behavior

@@ -131,7 +131,7 @@ private fun ManagerApp(vm: AppViewModel = viewModel()) {
             when (screen) {
                 Screen.DASHBOARD -> Dashboard(state, vm::scan, vm::connect, vm::disconnect)
                 Screen.MONITOR -> Monitor(state, vm::togglePause, vm::clearPackets)
-                Screen.ANALYZER -> LearningScreen(state, vm::resetLearning, vm::startLearningRound)
+                Screen.ANALYZER -> LearningScreen(state, vm::resetLearning, vm::startLearningRound, vm::saveLearnedLight)
                 Screen.ELEVATOR -> ElevatorResearchScreen(state)
                 Screen.FIRMWARE -> FirmwareScreen(
                     state = state,

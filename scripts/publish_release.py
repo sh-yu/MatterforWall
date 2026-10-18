@@ -17,7 +17,7 @@ ROOT = Path(__file__).resolve().parents[1]
 REPOSITORY = 'sh-yu/MatterforWall'
 
 
-def publish(folder, version):
+def publish(folder, version, release_tag=None):
     credential = subprocess.run(['git', 'credential', 'fill'],
                                 input='protocol=https\nhost=github.com\n\n',
                                 capture_output=True, text=True, check=True)
@@ -53,7 +53,11 @@ def publish(folder, version):
         data = (folder / binary).read_bytes()
         if len(data) != info['size'] or hashlib.sha256(data).hexdigest() != info['sha256']:
             raise ValueError('Release asset hash/size mismatch')
-    tag = 'v' + version
+    tag = release_tag or 'v' + version
+    if release_tag:
+        app = json.loads((folder / 'android-update.json').read_text())
+        if release_tag != 'app-v' + app['versionName']:
+            raise ValueError('App release tag must match APK version')
     try:
         existing = request(base + '/releases/tags/' + tag)
     except urllib.error.HTTPError as error:
@@ -66,6 +70,16 @@ def publish(folder, version):
                 body='Signed firmware ' + version +
                 ' and Android manager with GitHub app updates. Elevator candidates are passive/offline only; '
                 'live bus and Matter hub commissioning validation: HARDWARE_TEST_PENDING.')
+    if release_tag:
+        body['body'] = (
+            'Android ' + app['versionName'] + ': persisted named light-learning drafts, '
+            'installation qualification policy unit tests and OTA pacing/MTU improvements. '
+            'IMPORTANT: No reviewed real lighting profiles or authenticated firmware '
+            'enrollment are available yet. Test transmission and automatic installation '
+            'approval are NOT connected or enabled. RS485 remains receive-only. '
+            'Includes unchanged signed Matter firmware ' + version + '. '
+            'Hardware validation: HARDWARE_TEST_PENDING.'
+        )
     release = request(base + '/releases', json.dumps(body).encode())
     upload = release['upload_url'].split('{')[0]
     for name in names:
@@ -81,9 +95,10 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('folder', type=Path)
     parser.add_argument('--version', required=True)
+    parser.add_argument('--tag')
     args = parser.parse_args()
     try:
-        publish(args.folder, args.version)
+        publish(args.folder, args.version, args.tag)
     except urllib.error.HTTPError as error:
         print('GitHub API failed: HTTP ' + str(error.code), file=sys.stderr)
         sys.exit(1)
